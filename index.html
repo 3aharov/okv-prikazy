@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Приказы ОКВ</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/home">
+    <img class="brand-logo" src="logo.png" alt="">
+    <span class="brand-name">Приказы по Оренбургскому казачьему войску</span>
+  </a>
+  <nav class="tabs" id="tabs">
+    <a href="#/home" data-tab="home">Главная</a>
+    <a href="#/persons" data-tab="persons">Персоны</a>
+    <a href="#/surnames" data-tab="surnames">Фамилии</a>
+    <a href="#/places" data-tab="places">Места</a>
+    <a href="#/focus" data-tab="focus">Фокус</a>
+    <a href="#/texts" data-tab="texts">Тексты</a>
+    <a href="#/volume" data-tab="volume">Том</a>
+  </nav>
+</header>
+<main id="app"><p class="loading">Загрузка данных…</p></main>
+<script src="app.js"></script>
+<script src="config.js"></script>
+<script src="focus.js"></script>
+<script>OKV.boot();</script>
+</body>
+</html>
