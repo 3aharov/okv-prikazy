@@ -232,6 +232,7 @@ tr.group td {
 .hero { padding: 18px 0 6px; }
 .hero h1 { font-size: 30px; margin-bottom: 10px; }
 .lead { font: 17px/1.55 var(--serif); color: var(--ink); max-width: 760px; margin: 0; }
+.lead + .lead { margin-top: 10px; }
 .home h2 { color: var(--home-h2, var(--wine)); display: flex; align-items: center; gap: 10px; margin-top: 28px; }
 .home h2::before { content: ""; width: 22px; height: 3px; border-radius: 2px; background: var(--rose); }
 .home-search { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px 28px; margin: 22px 0; padding: 18px 20px; }
