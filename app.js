@@ -302,6 +302,8 @@ window.OKV = (function () {
      отрисовки (см. loadYearImages) — здесь только синхронный доступ к готовому кэшу. */
   const IMG = { resolved: new Map(), errors: new Set() };
 
+  // Диск отдаёт file/preview по Referer: чужой домен получает 403 — у страницы
+  // (index.html) поэтому политика no-referrer, иначе ссылки с 3aharov.github.io не грузятся.
   function loadYearImages(year) {
     const cfg = OKV.config && OKV.config.images;
     if (!cfg) return Promise.resolve();
