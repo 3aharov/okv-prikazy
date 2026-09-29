@@ -403,26 +403,25 @@ window.OKV = (function () {
     }));
   }
 
-  function download(name, text) {
-    const blob = new Blob(["\uFEFF" + text], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  }
-
-  function csvCell(v) {
-    const s = v == null ? "" : String(v);
-    return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  }
-
   /* ================= просмотр скана ================= */
+
+  // Откуда просмотр берёт сканы. По умолчанию — страницы приказов; база жителей
+  // (res.js) передаёт свой источник с теми же методами.
+  const okvSource = {
+    label: (pid) => pageLabel(Y().pageById.get(pid)),
+    img: imgSrc,
+    orig: (pid) => {
+      const pg = Y().pageById.get(pid);
+      const href = pg && pg.orig ? origHref(pg.orig) : null;
+      return href ? { href, title: pg.orig, text: "Разворот" } : null;
+    },
+    missing: (pid) => (IMG.errors.has(splitUid(pid)[0]) ? "Сканы недоступны" : "Скан не найден: " + pid),
+  };
 
   /* Скан с увеличением и перетаскиванием. show(id, person) — открыть страницу и, если
      у персоны есть координаты (prikaz_ocr.py), подсветить её строку и подвести к ней. */
-  function viewer(host, pageIds, activeId, activePerson) {
+  function viewer(host, pageIds, activeId, activePerson, source) {
+    const src = source || okvSource;
     let id = activeId || pageIds[0];
     let pending = activePerson || null;
     host.innerHTML = `
@@ -485,18 +484,15 @@ window.OKV = (function () {
 
     function show(newId, person) {
       pending = person || null;
-      const newSrc = imgSrc(newId);
+      const newSrc = src.img(newId);
       const same = newId === id && img.naturalWidth && newSrc && img.src.endsWith(newSrc.replace(/^\.\.\//, ""));
       id = newId;
-      const pg = Y().pageById.get(id);
-      $("[data-chips]", host).innerHTML = pageIds.map((pid) => {
-        const p = Y().pageById.get(pid);
-        return `<button class="chip ${pid === id ? "on" : ""}" data-pid="${esc(pid)}" title="${esc(pid)}">${esc(pageLabel(p))}</button>`;
-      }).join("");
+      $("[data-chips]", host).innerHTML = pageIds.map((pid) =>
+        `<button class="chip ${pid === id ? "on" : ""}" data-pid="${esc(pid)}" title="${esc(pid)}">${esc(src.label(pid))}</button>`).join("");
       $$("[data-pid]", host).forEach((b) => b.addEventListener("click", () => show(b.dataset.pid)));
       const orig = $("[data-orig]", host);
-      const origUrl = pg && pg.orig ? origHref(pg.orig) : null;
-      if (origUrl) { orig.href = origUrl; orig.hidden = false; orig.title = pg.orig; }
+      const o = src.orig(id);
+      if (o) { orig.href = o.href; orig.hidden = false; orig.title = o.title; orig.textContent = o.text; }
       else orig.hidden = true;
       if (same) {
         if (pending) highlight(pending); else { hl.hidden = true; hlw.hidden = true; note.textContent = ""; }
@@ -508,7 +504,7 @@ window.OKV = (function () {
       if (!newSrc) {
         canvas.hidden = true;
         const box = $("[data-noimg]", host);
-        box.textContent = IMG.errors.has(splitUid(id)[0]) ? "Сканы недоступны" : ("Скан не найден: " + id);
+        box.textContent = src.missing(id);
         box.hidden = false;
         return;
       }
@@ -559,76 +555,43 @@ window.OKV = (function () {
     return { show };
   }
 
-  /* ================= Главная ================= */
+  /* ================= Главная сайта и страница раздела «Приказы ОКВ» ================= */
 
-  function viewHome(app) {
+  const hasOkv = () => Y().years.length > 0;
+  const hasRes = () => !!(OKV.res && OKV.res.has());
+
+  function okvYears() {
     const D = Y();
-    const surnames = surnameGroups("").length;
-    const years = D.years.length > 1 ? `${D.years[0]}–${D.years[D.years.length - 1]}` : D.years[0];
-    app.innerHTML = `
-      <section class="home">
-        <div class="hero">
-          <h1>Приказы по Оренбургскому казачьему войску</h1>
-          <p class="lead">Поисковый указатель к печатным приказам по ОКВ: люди, фамилии и населённые пункты
-            со ссылкой на приказ и на скан страницы.</p>
-          <p class="lead">Проект находится в стадии тестирования. Индексирован только 1906 год.</p>
-          <p class="lead">Часть авторского проекта <a href="https://t.me/alexzakhar" target="_blank" rel="noopener">Саши Захарова</a>
-            по генеалогии и локальной истории.</p>
+    return D.years.length > 1 ? `${D.years[0]}–${D.years[D.years.length - 1]}` : D.years[0];
+  }
+
+  function yearsIndexed() {
+    return Y().years.length > 1 ? `Индексированы ${esc(okvYears())} годы.` : `Индексирован только ${esc(okvYears())} год.`;
+  }
+
+  // Формы поиска приказов (фамилия, место) — на главной сайта и на странице раздела.
+  function okvSearchForms(prefix) {
+    return `
+      <form data-home="surnames">
+        <label for="${prefix}-surname">Поиск по фамилиям</label>
+        <div class="row">
+          <input id="${prefix}-surname" type="search" placeholder="например, Захаров" autocomplete="off">
+          <button class="primary" type="submit">Найти</button>
         </div>
-
-        <div class="home-search panel">
-          <form data-home="surnames">
-            <label for="home-surname">Поиск по фамилиям</label>
-            <div class="row">
-              <input id="home-surname" type="search" placeholder="например, Захаров" autocomplete="off">
-              <button class="primary" type="submit">Найти</button>
-            </div>
-            <span class="hint">Фамилия по началу; женская форма равна мужской, старая орфография учтена.</span>
-          </form>
-          <form data-home="places">
-            <label for="home-place">Поиск по населённым пунктам</label>
-            <div class="row">
-              <input id="home-place" type="search" placeholder="например, Еманжелинский" autocomplete="off">
-              <button class="primary" type="submit">Найти</button>
-            </div>
-            <span class="hint">Посёлок или станица, по части названия.</span>
-          </form>
+        <span class="hint">Фамилия по началу; женская форма равна мужской, старая орфография учтена.</span>
+      </form>
+      <form data-home="places">
+        <label for="${prefix}-place">Поиск по населённым пунктам</label>
+        <div class="row">
+          <input id="${prefix}-place" type="search" placeholder="например, Еманжелинский" autocomplete="off">
+          <button class="primary" type="submit">Найти</button>
         </div>
+        <span class="hint">Посёлок или станица, по части названия.</span>
+      </form>`;
+  }
 
-        <div class="stats">
-          <div><b>${esc(years)}</b><span>${D.years.length > 1 ? "годы" : "год"} в указателе</span></div>
-          <div><b>${D.pages.length}</b><span>страниц разобрано</span></div>
-          <div><b>${D.orders.length}</b><span>приказов</span></div>
-          <div><b>${D.persons.length}</b><span>упоминаний людей</span></div>
-          <div><b>${surnames}</b><span>фамилий</span></div>
-          <div><b>${D.places.length}</b><span>населённых пунктов</span></div>
-        </div>
-
-        <h2>Что внутри</h2>
-        <div class="tiles">
-          <a class="tile" href="#/persons"><b>Персоны</b><span>Поиск человека по фамилии, имени, отчеству, месту, отделу, виду приказа и году рождения. Выгрузка в CSV.</span></a>
-          <a class="tile" href="#/surnames"><b>Фамилии</b><span>Указатель фамилий: сколько упоминаний, как написано в источнике, где встречается.</span></a>
-          <a class="tile" href="#/places"><b>Места</b><span>Станицы, посёлки, выселки и города: все упоминания и фамилии каждого пункта.</span></a>
-          ${hasFocus() ? `<a class="tile" href="#/focus"><b>Фокус</b><span>Станицы, посёлки и фамилии, которые исследуются особо, и пары «фамилия + место».</span></a>` : ""}
-          <a class="tile" href="#/texts"><b>Тексты</b><span>Поиск по полным текстам приказов в старой орфографии.</span></a>
-          <a class="tile" href="#/volume"><b>Том</b><span>Все разобранные страницы по порядку, с миниатюрами сканов.</span></a>
-        </div>
-
-        <h2>Как собраны данные</h2>
-        <ul class="facts">
-          <li>Источник — фотографии листов печатных приказов по Оренбургскому казачьему войску. Каждая
-            страница разобрана по полноразмерному скану: приказы, люди, места и события записаны
-            в структурированном виде.</li>
-          <li>Тексты приказов приводятся буква в букву, в старой орфографии. В указателях орфография
-            современная, написание источника показано рядом.</li>
-          <li>Нечитаемое не достраивается: сомнительные чтения помечены, у приказа всегда есть ссылка на скан.</li>
-          <li>Место — это наименование, станица и отдел вместе: одинаковое название в разных станицах — разные места.
-            Варианты написания одного пункта сведены только там, где это подтверждает текст приказа.</li>
-          <li>Строка человека на скане находится автоматически и может ошибаться. Любой вывод сверяйте по скану.</li>
-        </ul>
-      </section>`;
-
-    $$("form[data-home]", app).forEach((form) => form.addEventListener("submit", (e) => {
+  function bindOkvSearch(root) {
+    $$("form[data-home]", root).forEach((form) => form.addEventListener("submit", (e) => {
       e.preventDefault();
       const value = $("input", form).value.trim();
       // Как будто значение введено в строку поиска нужного справочника; остальные фильтры — по умолчанию.
@@ -642,7 +605,54 @@ window.OKV = (function () {
         location.hash = "#/places";
       }
     }));
-    $("#home-surname", app).focus();
+  }
+
+  // Как собраны данные приказов — раскрывающимся блоком на главной.
+  const OKV_FACTS = `
+    <details class="howto"><summary>Как собраны данные</summary>
+      <ul class="facts">
+        <li>Источник — фотографии листов печатных приказов по Оренбургскому казачьему войску. Каждая
+          страница разобрана по полноразмерному скану: приказы, люди, места и события записаны
+          в структурированном виде.</li>
+        <li>Тексты приказов приводятся буква в букву, в старой орфографии. В указателях орфография
+          современная, написание источника показано рядом.</li>
+        <li>Нечитаемое не достраивается: сомнительные чтения помечены, у приказа всегда есть ссылка на скан.</li>
+        <li>Место — это наименование, станица и отдел вместе: одинаковое название в разных станицах — разные места.
+          Варианты написания одного пункта сведены только там, где это подтверждает текст приказа.</li>
+        <li>Строка человека на скане находится автоматически и может ошибаться. Любой вывод сверяйте по скану.</li>
+      </ul>
+    </details>`;
+
+  function viewHome(app) {
+    const D = Y();
+    const okv = hasOkv() ? `
+      <section class="base panel">
+        <h2>Приказы по Оренбургскому казачьему войску</h2>
+        <p>Поисковый указатель к печатным приказам по ОКВ: люди, фамилии и населённые пункты
+          со ссылкой на приказ и на скан страницы. ${yearsIndexed()}</p>
+        <p class="base-stats"><b>${D.persons.length}</b> упоминаний людей · <b>${D.orders.length}</b> приказов ·
+          <b>${surnameGroups("").length}</b> фамилий · <b>${D.places.length}</b> населённых пунктов ·
+          <b>${D.pages.length}</b> страниц разобрано</p>
+        <div class="home-search">${okvSearchForms("home")}</div>
+        ${OKV_FACTS}
+      </section>` : "";
+    const res = hasRes() ? OKV.res.homeBlock() : "";
+    app.innerHTML = `
+      <section class="home">
+        <div class="hero">
+          <h1>Указатели по генеалогии и локальной истории</h1>
+          <p class="lead">Поисковые базы по документам о казаках Оренбургского казачьего войска:
+            кто, где и когда упомянут, со ссылкой на скан источника.</p>
+          <p class="lead">Проект находится в стадии тестирования.</p>
+          <p class="lead">Часть авторского проекта <a href="https://t.me/alexzakhar" target="_blank" rel="noopener">Саши Захарова</a>
+            по генеалогии и локальной истории.</p>
+        </div>
+        <div class="bases">${res}${okv}</div>
+      </section>`;
+    bindOkvSearch(app);
+    if (hasRes()) OKV.res.bindHomeBlock(app);
+    const first = $("input[type=search]", app);
+    if (first) first.focus();
   }
 
   /* ================= Персоны ================= */
@@ -712,7 +722,7 @@ window.OKV = (function () {
       <div class="toolbar">
         <span data-count class="count"></span><span class="grow"></span>
         <span class="hint">Фамилия ищется по началу, женская форма равна мужской. Старая орфография учтена.</span>
-        <button data-reset>Сбросить</button><button data-csv>CSV</button>
+        <button data-reset>Сбросить</button>
       </div>
       <div data-results></div>`;
 
@@ -727,19 +737,6 @@ window.OKV = (function () {
     $("[data-reset]", app).addEventListener("click", () => {
       Object.assign(f, PF_RESET, { year: "" });
       viewPersons(app);
-    });
-    $("[data-csv]", app).addEventListener("click", () => {
-      const head = ["год", "фамилия", "фамилия_ориг", "имя", "отчество", "отец", "роль", "двор", "звание",
-        "лета", "г_р", "посёлок", "станица", "отдел", "откуда", "куда", "событие", "дата",
-        "приказ", "с.", "страница", "скан", "conf"];
-      const rows = filterPersons(f).map(({ p }) => {
-        const o = Y().orderByKey.get(p.order) || {};
-        return [p.year, p.фамилия, p.фамилия_ориг, p.имя, p.отчество, p.отец, p.role, p.двор, p.звание,
-          p.лета, p.г_р, p.посёлок, p.станица, p.отдел, placeTxt(p.откуда), placeTxt(p.куда),
-          p.событие, p.дата, o.номер != null ? o.номер : o.rkey, p._page && p._page.page_no,
-          rid(p.page), p._page && p._page.scan, p.conf].map(csvCell).join(";");
-      });
-      download(`персоны_${f.year || "все годы"}.csv`, head.join(";") + "\n" + rows.join("\n"));
     });
 
     function draw() {
@@ -1394,6 +1391,75 @@ window.OKV = (function () {
 
   let currentView = null;
 
+  /* Разделы сайта. В шапке — «Главная» и по кнопке на раздел; внутри подраздела под ними
+     строка подразделов этого раздела. Маршруты приказов остались прежними (#/persons,
+     #/order/…), чтобы не сломать ссылки из заметок; база жителей — под #/res/…. */
+  const OKV_VIEWS = new Set(["persons", "order", "page", "surnames", "places", "place",
+    "focus", "texts", "volume"]);
+  const OKV_TABS = [
+    ["persons", "Персоны", "Поиск человека по фамилии, имени, отчеству, месту, отделу, виду приказа и году рождения."],
+    ["surnames", "Фамилии", "Указатель фамилий: сколько упоминаний, как написано в источнике, где встречается."],
+    ["places", "Места", "Станицы, посёлки, выселки и города: все упоминания и фамилии каждого пункта."],
+    ["focus", "Фокус", "Станицы, посёлки и фамилии, которые исследуются особо."],
+    ["texts", "Тексты", "Поиск по полным текстам приказов в старой орфографии."],
+    ["volume", "Том", "Все разобранные страницы по порядку, с миниатюрами сканов."]];
+  const SECTION_TITLES = { home: "", okv: "Приказы ОКВ", res: "Жители Еткульской" };
+
+  // Подразделы раздела: [href, ключ вкладки, название, пояснение].
+  function sectionTabs(sec) {
+    if (sec === "okv" && !hasOkv()) return [];
+    if (sec === "res" && !hasRes()) return [];
+    if (sec === "okv") return OKV_TABS.filter(([k]) => k !== "focus" || hasFocus()).map(([k, t, d]) => [`#/${k}`, k, t, d]);
+    if (sec === "res") return OKV.res.tabs().map(([k, t, d]) => [`#/res/${k}`, k, t, d]);
+    return [];
+  }
+
+  /* Кнопка раздела в шапке открывает выпадающий список подразделов; своей страницы у раздела нет. */
+  function buildMenus() {
+    $$("#sections .sec").forEach((box) => {
+      const tabs = sectionTabs(box.dataset.sec);
+      if (!tabs.length) { box.hidden = true; return; }
+      const menu = $(".menu", box), btn = $(".sec-btn", box);
+      menu.innerHTML = tabs.map(([href, k, t, d]) =>
+        `<a href="${href}" data-tab="${k}"><b>${esc(t)}</b>${d ? `<span>${esc(d)}</span>` : ""}</a>`).join("");
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = menu.hidden;
+        closeMenus();
+        menu.hidden = !open;
+        btn.setAttribute("aria-expanded", String(open));
+      });
+      menu.addEventListener("click", () => closeMenus());
+    });
+    document.addEventListener("click", (e) => { if (!e.target.closest("#sections .sec")) closeMenus(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(); });
+  }
+
+  function closeMenus() {
+    $$("#sections .menu").forEach((m) => { m.hidden = true; });
+    $$("#sections .sec-btn").forEach((b) => b.setAttribute("aria-expanded", "false"));
+  }
+
+  function drawNav(sec, tab) {
+    closeMenus();
+    $$("#sections [data-sec]").forEach((el) => el.classList.toggle("on", el.dataset.sec === sec));
+    $$("#sections .menu a").forEach((a) => a.classList.toggle("on",
+      a.closest(".sec").dataset.sec === sec && a.dataset.tab === tab));
+    const sub = $("#subnav");
+    const tabs = sectionTabs(sec);
+    if (!tabs.length) { sub.hidden = true; sub.innerHTML = ""; }
+    else {
+      sub.hidden = false;
+      sub.innerHTML = `<span class="sub-title">${esc(SECTION_TITLES[sec])}</span>` +
+        tabs.map(([href, k, t]) => `<a href="${href}" data-tab="${k}" class="${k === tab ? "on" : ""}">${esc(t)}</a>`).join("");
+    }
+    // Высота шапки меняется со строкой подразделов — от неё считаются липкий скан и его высота.
+    document.documentElement.style.setProperty("--top-h", $(".top").offsetHeight + "px");
+    const on = $("#subnav a.on");
+    const parts = [SECTION_TITLES[sec], on ? on.textContent : ""].filter(Boolean);
+    document.title = parts.length ? parts.join(" — ") : "Указатели по генеалогии и локальной истории";
+  }
+
   function route() {
     const app = $("#app");
     if (currentView) S.scroll[currentView] = window.scrollY;
@@ -1402,8 +1468,20 @@ window.OKV = (function () {
     const params = Object.fromEntries(new URLSearchParams(query || ""));
     const [view, ...rest] = path.split("/");
     const arg = rest.length ? decodeURIComponent(rest.join("/")) : null;
+
+    if (view === "res") {
+      if (!hasRes()) { location.hash = "#/home"; return; }
+      currentView = rest.length <= 1 ? path : null;
+      const r = OKV.res.route(app, rest.map(decodeURIComponent), params);
+      if (r.home) { location.replace("#/home"); return; }
+      drawNav("res", r.tab);
+      if (currentView && rest.length) window.scrollTo(0, S.scroll[currentView] || 0);
+      return;
+    }
+
     // Без личного фокуса (веб-сборка) вкладки «Фокус» нет — маршрут уводит на главную.
     let v = (view || "home") === "focus" && !hasFocus() ? "home" : (view || "home");
+    if (OKV_VIEWS.has(v) && !hasOkv()) v = "home";
     const year = params.y && Y().years.includes(params.y) ? params.y : null;
     // Выдачу можно открыть ссылкой из заметки: #/persons?fam=Захаров&place=Еткульская&y=1906,
     // #/surnames?q=Захар, #/places?q=Еманжелин, #/texts?q=надел
@@ -1418,7 +1496,6 @@ window.OKV = (function () {
     if (v === "places" && params.q != null) Object.assign(S.plf, { q: params.q, year: year || "" });
     if (v === "texts" && params.q != null) Object.assign(S.tf, { q: params.q, year: year || "" });
     const tab = { order: "persons", page: "volume", place: "places" }[v] || v;
-    $$("#tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
     currentView = arg == null ? v : null;
     const views = {
       home: () => viewHome(app),
@@ -1430,43 +1507,54 @@ window.OKV = (function () {
     };
     (views[v] || views.home)();
     if (currentView && v !== "home") window.scrollTo(0, S.scroll[currentView] || 0);
-    const on = $("#tabs a.on");
-    document.title = "Приказы ОКВ" + (on && v !== "home" ? " — " + on.textContent : "");
+    drawNav(OKV_VIEWS.has(v) ? "okv" : "home", tab);
   }
 
-  function boot() {
-    const years = (OKV.config && OKV.config.years) || [];
-    if (!years.length) {
-      $("#app").innerHTML = `<p class="empty">Нет данных. Соберите: <code>python prikaz_explorer.py --year 1906</code></p>`;
-      return;
-    }
-    const dataLoaded = new Promise((resolve) => {
-      let left = years.length;
+  function loadScripts(files) {
+    return new Promise((resolve) => {
+      let left = files.length;
+      if (!left) { resolve(); return; }
       const done = () => { if (--left <= 0) resolve(); };
-      for (const y of years) {
+      for (const name of files) {
         const s = document.createElement("script");
-        s.src = `data_${y}.js`;
+        s.src = name;
         s.onload = done;
         s.onerror = done;
         document.body.appendChild(s);
       }
     });
+  }
+
+  function boot() {
+    const cfg = OKV.config || {};
+    const years = cfg.years || [];
+    const resFiles = OKV.res ? OKV.res.files(cfg) : [];
+    if (!years.length && !resFiles.length) {
+      $("#app").innerHTML = `<p class="empty">Нет данных. Соберите: <code>python prikaz_explorer.py --year 1906</code></p>`;
+      return;
+    }
+    const dataLoaded = loadScripts([...years.map((y) => `data_${y}.js`), ...resFiles]);
     // Список сканов года (в вебе, config.js несёт images) — параллельно с данными,
     // не задерживая друг друга; первую отрисовку ждём обоих сразу — проще и надёжнее,
     // чем подставлять src отложенно, а запрос обычно укладывается в секунду.
+    // Сканы базы жителей запрашиваются позже, при первом открытии скана (res.js).
     const imagesLoaded = Promise.all(years.map(loadYearImages));
     Promise.all([dataLoaded, imagesLoaded]).then(() => {
-      if (!S.loaded.length) { $("#app").innerHTML = `<p class="empty">Файлы данных не загрузились.</p>`; return; }
+      const resOk = OKV.res && OKV.res.finalize();
+      if (!S.loaded.length && !resOk) { $("#app").innerHTML = `<p class="empty">Файлы данных не загрузились.</p>`; return; }
       finalize();
-      if (!hasFocus()) {
-        const tab = $('#tabs a[data-tab="focus"]');
-        if (tab) tab.hidden = true;
-      }
+      buildMenus();
       window.addEventListener("hashchange", route);
+      window.addEventListener("resize", debounce(() =>
+        document.documentElement.style.setProperty("--top-h", $(".top").offsetHeight + "px"), 150));
       route();
     });
   }
 
-  return { addYear, boot, finalize, config: null, focus: null,
+  // Общие помощники для модуля базы жителей (res.js) — чтобы вёрстка и поиск были одни.
+  const helpers = { esc, $, $$, fold, masc, surnameMatch, debounce, sortHead, bindSort, bindRows,
+    viewer, S };
+
+  return { addYear, boot, finalize, config: null, focus: null, h: helpers,
     _S: S, _fold: fold, _surnameMatch: surnameMatch, _placeStem: placeStem };
 })();

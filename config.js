@@ -2,6 +2,10 @@ OKV.config = {
  "years": [
   "1906"
  ],
+ "res_docs": [
+  "rs1834_etkul"
+ ],
+ "res_links": false,
  "images": {
   "public_key": "https://disk.yandex.ru/d/qIUS4P5V3srg4w",
   "pages": "/",

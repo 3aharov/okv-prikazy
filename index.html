@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Приказы ОКВ</title>
+<title>Указатели по генеалогии и локальной истории</title>
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
@@ -13,22 +13,27 @@
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="#/home">
-    <img class="brand-logo" src="logo.png" alt="">
-    <span class="brand-name">Приказы по Оренбургскому казачьему войску</span>
-  </a>
-  <nav class="tabs" id="tabs">
-    <a href="#/home" data-tab="home">Главная</a>
-    <a href="#/persons" data-tab="persons">Персоны</a>
-    <a href="#/surnames" data-tab="surnames">Фамилии</a>
-    <a href="#/places" data-tab="places">Места</a>
-    <a href="#/focus" data-tab="focus">Фокус</a>
-    <a href="#/texts" data-tab="texts">Тексты</a>
-    <a href="#/volume" data-tab="volume">Том</a>
-  </nav>
+  <div class="top-row">
+    <a class="brand" href="#/home" title="Главная">
+      <img class="brand-logo" src="logo.png" alt="Указатели по генеалогии и локальной истории">
+    </a>
+    <nav class="sections" id="sections">
+      <a href="#/home" data-sec="home">Главная</a>
+      <div class="sec" data-sec="okv">
+        <button type="button" class="sec-btn" aria-haspopup="true" aria-expanded="false">Приказы ОКВ</button>
+        <div class="menu" hidden></div>
+      </div>
+      <div class="sec" data-sec="res">
+        <button type="button" class="sec-btn" aria-haspopup="true" aria-expanded="false">Жители Еткульской</button>
+        <div class="menu" hidden></div>
+      </div>
+    </nav>
+  </div>
+  <nav class="subnav" id="subnav" hidden></nav>
 </header>
 <main id="app"><p class="loading">Загрузка данных…</p></main>
 <script src="app.js"></script>
+<script src="res.js"></script>
 <script src="config.js"></script>
 <script src="focus.js"></script>
 <script>OKV.boot();</script>
