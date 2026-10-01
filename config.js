@@ -12,5 +12,6 @@ OKV.config = {
   "pages": "/",
   "preview_size": "L",
   "corpus_key": "https://disk.yandex.ru/d/GpYa_7VQVbd7gg"
- }
+ },
+ "hide_checks": true
 };

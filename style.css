@@ -333,3 +333,6 @@ details.raw summary { cursor: pointer; color: var(--muted); margin: 18px 0 6px; 
   .sec .menu { min-width: 260px; }
   .filters label.wide { grid-column: 1 / -1; }
 }
+
+/* Публичная сборка: служебные пометки «проверить» скрыты (config.hide_checks) */
+body.no-checks .checks { display: none !important; }

@@ -426,7 +426,7 @@ OKV.res = (function () {
           <label>Выбытие <select data-f="dep"><option value="">все</option><option value="here">налицо</option>
             <option value="died">умерли</option><option value="left">выбыли иначе</option></select></label>
           <label class="check"><input type="checkbox" data-f="similar"> похожие написания фамилии</label>
-          <label class="check"><input type="checkbox" data-f="flagged"> только с пометками «проверить»</label>
+          <label class="check checks"><input type="checkbox" data-f="flagged"> только с пометками «проверить»</label>
         </div>
       </div>
       <div class="toolbar">
@@ -460,7 +460,7 @@ OKV.res = (function () {
         <tr data-href="${esc(personHref(r))}" class="${r.убытие ? "gone" : ""}">
           <td><span class="name">${esc(fio(r))}</span>
             ${match === "similar" ? ` <span class="pill tag-similar">похоже</span>` : ""}
-            ${flagCount(r) ? ` <span class="pill conf-medium" title="есть пометки «проверить»">проверить</span>` : ""}
+            ${flagCount(r) ? ` <span class="pill conf-medium checks" title="есть пометки «проверить»">проверить</span>` : ""}
             ${origName(r) ? `<div class="orig">${esc(origName(r))}</div>` : ""}</td>
           <td class="num">${esc(birthTxt(r))}</td>
           <td class="num">${esc(r.fam_no || "")}${r._family && r._family.place ? `<div class="muted small">${esc(r._family.place)}</div>` : ""}</td>
@@ -588,7 +588,7 @@ OKV.res = (function () {
             <p class="hint">Из индекса — то, что не легло в поля карточки, как записано индексатором.</p>
             <ul class="extralist">${r.extra.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
 
-          ${flags.length ? `<h2>Что проверить по скану</h2><ul class="flaglist">${flags.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+          ${flags.length ? `<h2 class="checks">Что проверить по скану</h2><ul class="flaglist checks">${flags.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
 
           <details class="raw"><summary>Всё, что записано в индексе (строка Excel ${esc(r.row)})</summary>
             <div class="detail"><dl>${rawRows}</dl></div></details>
@@ -614,7 +614,7 @@ OKV.res = (function () {
       <div class="panel"><div class="filters">
         ${docSelect(f.doc)}
         <label>Фамилия в семье или № семьи <input type="search" data-q placeholder="Важенин или 34"></label>
-        <label class="check"><input type="checkbox" data-flag> только с пометками</label>
+        <label class="check checks"><input type="checkbox" data-flag> только с пометками</label>
       </div></div>
       <div class="toolbar"><span class="count" data-count></span><span class="grow"></span>
         <span class="hint">Номера — как в индексе. Щелчок — состав семьи и скан.</span></div>
@@ -646,7 +646,7 @@ OKV.res = (function () {
           <td class="num">${x._members.length} <span class="muted small">(м ${m}, ж ${x._members.length - m}${gone ? `, выбыло ${gone}` : ""})</span></td>
           <td>${esc(familySurnames(x).join(", "))}</td>
           <td class="num">${esc(x.files.join(", "))}</td>
-          <td>${x.flags.length ? `<span class="pill conf-medium" title="${esc(x.flags.join("; "))}">проверить</span>` : ""}</td>
+          <td>${x.flags.length ? `<span class="pill conf-medium checks" title="${esc(x.flags.join("; "))}">проверить</span>` : ""}</td>
           <td class="muted small">${esc(x._doc.short)}</td>
         </tr>`;
       }).join("");
@@ -682,7 +682,7 @@ OKV.res = (function () {
             <dt>Источник</dt><dd>${esc(docRef(doc))}, скан ${esc(f.files.join(", "))}</dd>
             <dt>Состав</dt><dd>${f._members.length} записей</dd>
           </dl>
-          ${f.flags.length ? `<ul class="flaglist">${f.flags.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+          ${f.flags.length ? `<ul class="flaglist checks">${f.flags.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
           <div class="tablewrap"><table class="grid">${familyHead(doc)}<tbody>${familyRows(f, null)}</tbody></table></div>
         </div>
         <div class="right" data-viewer></div>
@@ -818,7 +818,7 @@ OKV.res = (function () {
               Object.entries(s).filter(([k]) => !["записей", "мужчин", "женщин", "с пометками"].includes(k))
                 .map(([k, v]) => `; ${esc(k)} ${esc(v)}`).join("")}</dd>
             <dt>Семей</dt><dd>${d.families.length}</dd>
-            <dt>С пометками</dt><dd><a href="#/res/persons" data-flagged>${esc(s["с пометками"] || 0)} записей</a></dd>
+            <dt class="checks">С пометками</dt><dd class="checks"><a href="#/res/persons" data-flagged>${esc(s["с пометками"] || 0)} записей</a></dd>
           </dl>
           ${d.index_note ? `<p class="gap-note">${esc(d.index_note)}</p>` : ""}
           <h2>Как считаются годы</h2>

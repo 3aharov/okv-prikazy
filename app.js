@@ -1131,10 +1131,10 @@ window.OKV = (function () {
         if (more) more.addEventListener("click", () => { f.limit += 1000; draw(); });
       }
       const cs = conflicts();
-      $("[data-conflicts]", app).innerHTML = cs.length ? `<h2>Что проверить</h2>
-        <p class="hint">Посёлки без станицы с несколькими кандидатами не слиты. Отдел станицы взят по большинству записей;
+      $("[data-conflicts]", app).innerHTML = cs.length ? `<h2 class="checks">Что проверить</h2>
+        <p class="hint checks">Посёлки без станицы с несколькими кандидатами не слиты. Отдел станицы взят по большинству записей;
           записи с другим отделом слиты и помечены в карточке места — это отдел перечисления или службы, попавший в поле, либо ошибка разбора.</p>
-        <ul>${cs.map((c) => `<li>${multiYear() ? esc(c.year) + ": " : ""}${esc(c.text)}</li>`).join("")}</ul>` : "";
+        <ul class="checks">${cs.map((c) => `<li>${multiYear() ? esc(c.year) + ": " : ""}${esc(c.text)}</li>`).join("")}</ul>` : "";
     }
     draw();
   }
@@ -1527,6 +1527,8 @@ window.OKV = (function () {
 
   function boot() {
     const cfg = OKV.config || {};
+    // Публичная сборка прячет служебные пометки «проверить» (explorer.web.json → hide_checks).
+    if (cfg.hide_checks) document.body.classList.add("no-checks");
     const years = cfg.years || [];
     const resFiles = OKV.res ? OKV.res.files(cfg) : [];
     if (!years.length && !resFiles.length) {
