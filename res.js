@@ -95,19 +95,22 @@ OKV.res = (function () {
 
   function loadDocImages(doc) {
     if (IMG.lists.has(doc.id)) return IMG.lists.get(doc.id);
+    if (!doc.scans || !doc.scans.public_key) return Promise.resolve(new Map());
     const base = "https://cloud-api.yandex.net/v1/disk/public/resources";
     const map = new Map();
-    const page = (offset) => fetch(`${base}?public_key=${encodeURIComponent(doc.scans.public_key)}` +
-      `&path=${encodeURIComponent("/")}&limit=1000&offset=${offset}` +
+    // Сканы документа могут лежать в нескольких подпапках публичной папки (scans.paths).
+    const paths = doc.scans.paths || ["/"];
+    const page = (path, offset) => fetch(`${base}?public_key=${encodeURIComponent(doc.scans.public_key)}` +
+      `&path=${encodeURIComponent(path)}&limit=1000&offset=${offset}` +
       `&fields=_embedded.total,_embedded.items.name,_embedded.items.file`)
       .then((r) => { if (!r.ok) throw new Error("Яндекс.Диск: HTTP " + r.status); return r.json(); })
       .then((data) => {
         const emb = data._embedded || {};
         const items = emb.items || [];
-        items.forEach((it) => map.set(it.name, it.file));
-        if (items.length && offset + items.length < (emb.total || 0)) return page(offset + items.length);
+        items.forEach((it) => { if (it.file && !map.has(it.name)) map.set(it.name, it.file); });
+        if (items.length && offset + items.length < (emb.total || 0)) return page(path, offset + items.length);
       });
-    const p = page(0).then(() => map).catch((e) => {
+    const p = Promise.all(paths.map((path) => page(path, 0))).then(() => map).catch((e) => {
       IMG.errors.add(doc.id);
       console.error("Сканы документа", doc.id, "недоступны:", e);
       return map;
@@ -120,11 +123,14 @@ OKV.res = (function () {
   function scanSource(doc, map) {
     const ext = doc.scans.ext || ".jpg";
     const file = (pid) => pid.slice(pid.indexOf("/") + 1);
+    // Имя файла на Диске: по шаблону документа («…s_{n}.jpg») или номер + расширение («0004.jpg»).
+    const name = (pid) => (doc.scans.name ? doc.scans.name.replace("{n}", file(pid)) : file(pid) + ext);
     return {
       label: (pid) => "скан " + file(pid),
-      img: (pid) => map.get(file(pid) + ext) || null,
+      img: (pid) => map.get(name(pid)) || null,
       orig: () => null,   // ссылки на файл на Диске в просмотре нет
-      missing: (pid) => (IMG.errors.has(doc.id) ? "Сканы недоступны (Яндекс Диск не ответил)" : "Скан не найден: " + file(pid)),
+      missing: (pid) => (!doc.scans.public_key ? "Сканы этого документа пока не выложены" :
+        IMG.errors.has(doc.id) ? "Сканы недоступны (Яндекс Диск не ответил)" : "Скан не найден: " + file(pid)),
     };
   }
 
@@ -143,9 +149,13 @@ OKV.res = (function () {
     return s || "—";
   }
 
+  // Написание источника. Части ФИО, выведенные по семье (r.выведено: фамилия жены, отчество сына),
+  // в источнике не записаны — их не показываем.
   function origName(r) {
-    const o = [r.фамилия_ориг || r.фамилия, r.имя_ориг || r.имя, r.отчество_ориг || r.отчество].filter(Boolean).join(" ");
-    return (r.фамилия_ориг || r.имя_ориг || r.отчество_ориг) ? o : "";
+    const skip = new Set(r.выведено || []);
+    const part = (k) => (skip.has(k) ? "" : r[k + "_ориг"] || r[k]);
+    const o = [part("фамилия"), part("имя"), part("отчество")].filter(Boolean).join(" ");
+    return (r.фамилия_ориг || r.имя_ориг || r.отчество_ориг || skip.size) ? o : "";
   }
 
   function birthTxt(r, long) {
@@ -161,7 +171,17 @@ OKV.res = (function () {
     return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many;
   }
 
-  const rankTxt = (r) => [r.чин, r.сословие].filter(Boolean).join(", ");
+  const rankTxt = (r) => [r.чин, r.служба, r.сословие].filter(Boolean).join(", ");
+
+  // Колонки возраста — из описания документа (РС: «Лет в 1816», «Лет в 1834»; список 1865: одна).
+  function ageCols(docs) {
+    const seen = new Map();
+    docs.forEach((d) => (d.ages || []).forEach((a) => { if (!seen.has(a.key)) seen.set(a.key, a); }));
+    return [...seen.values()];
+  }
+  // Номер семьи с пунктом, если нумерация дворов в документе своя в каждом пункте.
+  // Семья без номера (в списке 1865 «″» — двора нет: все умерли или выбыли).
+  const famLabel = (f) => `${f.no ? "№ " + f.no : "без двора"}${f.place ? " · " + f.place : ""}`;
 
   function relTo(r) { return r.rel_to ? R.byId.get(r.rel_to) : null; }
 
@@ -251,7 +271,7 @@ OKV.res = (function () {
     return R.docs.map((d) => `${esc(d.title)}`).join("; ");
   }
 
-  const extLink = (l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.text)}</a>`;
+  const extLink = (l) => (l.url ? `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.text)}</a>` : esc(l.text));
 
   // Источник документа словами автора базы (source в реестре документов rs_import.py).
   function sourceItem(d) {
@@ -292,17 +312,12 @@ OKV.res = (function () {
     const gaps = R.docs.filter((d) => d.files_missing && d.files_missing.length);
     return `<details class="howto"><summary>Как собраны данные</summary>
         <ul class="facts">
-          <li>Ревизская сказка 1834 года проиндексирована с помощью ИИ по сканам, сверка со сканами выборочная.
-            Любой вывод сверяйте по скану — он открывается рядом с каждой записью.</li>
-          <li>Год рождения расчётный: 1834 минус возраст по текущей ревизии; если его нет (умер или выбыл
-            до 1834 года) — 1816 минус возраст по прошлой ревизии. Возраст в сказке округлён, поэтому
-            год рождения — «около». Расхождения двух возрастов помечены.</li>
+          ${R.docs.map((d) => (d.facts || []).map((x) => `<li>${esc(x)}</li>`).join("")).join("")}
           <li>В указателях орфография современная, написание индекса показано рядом. Всё, что записано
             в индексе и не легло в поля, — в «Дополнительной информации» карточки.</li>
           <li>Номера семей — как в индексе. Семья — подряд идущие записи с одним номером; повтор номера
             в другом месте индекса помечен как возможная ошибка распознавания.</li>
           ${gaps.map((d) => `<li>${esc(d.short)}: не проиндексированы сканы ${esc(rangesTxt(d.files_missing))}.</li>`).join("")}
-          <li>В ревизской сказке 1834 года по казакам Челябинского уезда не указаны точные населённые пункты проживания — только принадлежность к станице.</li>
         </ul>
       </details>`;
   }
@@ -440,6 +455,7 @@ OKV.res = (function () {
         (byOtch && byOtch < res.length ? ` · совпадение только по отчеству — в конце списка: ${byOtch}` : "");
       const box = $("[data-results]", app);
       if (!res.length) { box.innerHTML = `<p class="empty">Ничего не найдено.</p>`; return; }
+      const ages = ageCols(f.doc ? [R.docById.get(f.doc)] : R.docs);
       const rows = res.slice(0, f.limit).map(({ r, match }) => `
         <tr data-href="${esc(personHref(r))}" class="${r.убытие ? "gone" : ""}">
           <td><span class="name">${esc(fio(r))}</span>
@@ -447,17 +463,16 @@ OKV.res = (function () {
             ${flagCount(r) ? ` <span class="pill conf-medium" title="есть пометки «проверить»">проверить</span>` : ""}
             ${origName(r) ? `<div class="orig">${esc(origName(r))}</div>` : ""}</td>
           <td class="num">${esc(birthTxt(r))}</td>
-          <td class="num">${esc(r.fam_no || "")}</td>
+          <td class="num">${esc(r.fam_no || "")}${r._family && r._family.place ? `<div class="muted small">${esc(r._family.place)}</div>` : ""}</td>
           <td>${esc(relTxt(r))}</td>
           <td class="nowrap">${esc(r._doc.short)}<div class="muted small">скан ${esc(r.file || "?")}</div></td>
           <td>${esc(rankTxt(r))}</td>
-          <td class="num">${esc(r.лета_1816 || "")}</td>
-          <td class="num">${esc(r.лета_1834 || "")}</td>
+          ${ages.map((a) => `<td class="num">${esc(r[a.key] || "")}</td>`).join("")}
           <td class="ev">${esc(depTxt(r))}</td>
         </tr>`).join("");
       box.innerHTML = `<div class="tablewrap"><table class="grid">
         <thead>${sortHead([["fam", "Фамилия, имя, отчество"], ["gr", "Г. р."], ["", "Семья"], ["", "Родство"],
-          ["doc", "Документ"], ["", "Чин, сословие"], ["", "Лет в 1816"], ["", "Лет в 1834"], ["", "Выбытие"]], f)}</thead>
+          ["doc", "Документ"], ["", "Чин, сословие"], ...ages.map((a) => ["", a.label]), ["", "Выбытие"]], f)}</thead>
         <tbody>${rows}</tbody></table></div>
         ${res.length > f.limit ? `<div class="more"><button data-more>Показать ещё (${res.length - f.limit})</button></div>` : ""}`;
       bindRows(box);
@@ -478,16 +493,15 @@ OKV.res = (function () {
         <td><span class="name">${esc(fio(m))}</span>${origName(m) ? `<div class="orig">${esc(origName(m))}</div>` : ""}</td>
         <td>${esc(m.родство || "")}${to && m.родство !== "глава" ? ` <span class="muted small">к № ${esc(to.pos)}</span>` : ""}</td>
         <td>${esc(rankTxt(m))}</td>
-        <td class="num">${esc(m.лета_1816 || "")}</td>
-        <td class="num">${esc(m.лета_1834 || "")}</td>
+        ${(f._doc.ages || []).map((a) => `<td class="num">${esc(m[a.key] || "")}</td>`).join("")}
         <td class="num">${esc(birthTxt(m))}</td>
         <td class="ev">${esc(depTxt(m))}</td>
       </tr>`;
     }).join("");
   }
 
-  const FAMILY_HEAD = `<thead><tr><th class="nosort">№</th><th class="nosort">ФИО</th><th class="nosort">Родство</th>
-    <th class="nosort">Чин, сословие</th><th class="nosort">Лет в 1816</th><th class="nosort">Лет в 1834</th>
+  const familyHead = (doc) => `<thead><tr><th class="nosort">№</th><th class="nosort">ФИО</th><th class="nosort">Родство</th>
+    <th class="nosort">Чин, сословие</th>${(doc.ages || []).map((a) => `<th class="nosort">${esc(a.label)}</th>`).join("")}
     <th class="nosort">Г. р.</th><th class="nosort">Выбытие</th></tr></thead>`;
 
   function linksBlock(r) {
@@ -510,6 +524,9 @@ OKV.res = (function () {
           <td>${esc(o._doc.short)}</td><td class="small">${esc(fac)}</td><td>${esc(link.status || "авто")}</td></tr>`;
       }).join("")}</tbody></table></div>`;
   }
+
+  // Номера в семье числами (РС) — нумерованный список; 1м/1ж (список 1865) — подписи.
+  const numPos = (f) => f._members.every((m) => m.pos == null || /^\d+$/.test(String(m.pos)));
 
   function viewPerson(app, id) {
     const r = R.byId.get(id);
@@ -537,19 +554,19 @@ OKV.res = (function () {
           <dl class="meta">
             <dt>Документ</dt><dd><a href="#/res/doc/${esc(doc.id)}">${esc(doc.title)}</a></dd>
             <dt>Источник</dt><dd>${esc(docRef(doc))}, скан ${esc(r.file || "?")} · № п/п ${esc(r.n != null ? r.n : "—")}</dd>
-            <dt>Семья</dt><dd><a href="${esc(familyHref(f))}">№ ${esc(f.no || "—")}</a> · № в семье ${esc(r.pos != null ? r.pos : "—")}</dd>
-            <dt>Состав семьи по ${esc(doc.short)}</dt><dd><ol class="famlist">${f._members.map((m) => {
+            <dt>Семья</dt><dd><a href="${esc(familyHref(f))}">${esc(famLabel(f))}</a> · № в семье ${esc(r.pos != null ? r.pos : "—")}</dd>
+            <dt>Состав семьи по ${esc(doc.short_by || doc.short)}</dt><dd><ol class="famlist${numPos(f) ? "" : " labeled"}">${f._members.map((m) => {
               const rel = relToHead(m);
-              return `<li class="${m.id === r.id ? "me" : ""} ${m.убытие ? "gone" : ""}" value="${esc(m.pos != null ? m.pos : "")}">
-                ${m.id === r.id ? `<b>${esc(fio(m))}</b>` : `<a href="${esc(personHref(m))}">${esc(fio(m))}</a>`}${m.рождение ? `, ${esc(birthTxt(m))}` : ""}
+              return `<li class="${m.id === r.id ? "me" : ""} ${m.убытие ? "gone" : ""}"${numPos(f) ? ` value="${esc(m.pos != null ? m.pos : "")}"` : ""}>
+                ${numPos(f) ? "" : `<span class="pos">${esc(m.pos || "")}</span>`}${m.id === r.id ? `<b>${esc(fio(m))}</b>` : `<a href="${esc(personHref(m))}">${esc(fio(m))}</a>`}${m.рождение ? `, ${esc(birthTxt(m))}` : ""}
                 — ${rel ? esc(rel) : `<span class="muted">${esc(relTxt(m) || "родство не указано")}</span>`}</li>`;
             }).join("")}</ol></dd>
             <dt>Родство</dt><dd>${r.родство ? esc(r.родство) : '<span class="muted">не указано</span>'}${to && r.родство !== "глава"
               ? ` — к <a href="${esc(personHref(to))}">${esc(fio(to))}</a> (№ ${esc(to.pos)})` : ""}</dd>
             ${r.сословие ? `<dt>Сословие</dt><dd>${esc(r.сословие)}</dd>` : ""}
             ${r.чин ? `<dt>Чин</dt><dd>${esc(r.чин)}</dd>` : ""}
-            <dt>Лет по ревизии ${esc(doc.prev_year)} г.</dt><dd>${esc(r.лета_1816 || "—")}</dd>
-            <dt>Лет по ревизии ${esc(doc.year)} г.</dt><dd>${esc(r.лета_1834 || "—")}</dd>
+            ${r.служба ? `<dt>Служба</dt><dd>${esc(r.служба)}</dd>` : ""}
+            ${(doc.ages || []).map((a) => `<dt>${esc(a.label)}</dt><dd>${esc(r[a.key] || "—")}</dd>`).join("")}
             <dt>Год рождения</dt><dd>${r.рождение ? birthTxt(r, true) : '<span class="muted">не рассчитан</span>'}
               ${r.рождение && r.рождение.альт ? `<div class="small">по ${esc(r.рождение.альт.по)} — ≈${esc(r.рождение.альт.год)}</div>` : ""}</dd>
             ${p ? `<dt>Поступление</dt><dd>${esc(p.текст || "")}${p.откуда ? ", откуда: " + esc(p.откуда) : ""}${p.год && !(p.текст || "").includes(p.год) ? ` (${esc(p.год)})` : ""}</dd>` : ""}
@@ -560,9 +577,9 @@ OKV.res = (function () {
             <dt>Место проживания</dt><dd>${r.место_проживания ? esc(r.место_проживания) : '<span class="muted">в документе не указано</span>'}</dd>
           </dl>
 
-          <h2>Семья № ${esc(f.no || "—")} <span class="count">${f._members.length}</span></h2>
+          <h2>Семья ${esc(famLabel(f))} <span class="count">${f._members.length}</span></h2>
           <p class="hint">Щелчок по строке — карточка члена семьи. Серым — умершие и выбывшие до ревизии.</p>
-          <div class="tablewrap"><table class="grid">${FAMILY_HEAD}<tbody>${familyRows(f, r.id)}</tbody></table></div>
+          <div class="tablewrap"><table class="grid">${familyHead(doc)}<tbody>${familyRows(f, r.id)}</tbody></table></div>
 
           <h2>Возможные упоминания</h2>
           ${linksBlock(r)}
@@ -624,7 +641,7 @@ OKV.res = (function () {
         const m = x._members.filter((y) => y.пол === "м").length;
         const gone = x._members.filter((y) => y.убытие).length;
         return `<tr data-href="${esc(familyHref(x))}">
-          <td class="num">${esc(x.no || "—")}</td>
+          <td class="num">${esc(x.no || "—")}${x.place ? `<div class="muted small">${esc(x.place)}</div>` : ""}</td>
           <td><span class="name">${esc(fio(x._head))}</span>${x._head.чин ? ` <span class="muted small">${esc(x._head.чин)}</span>` : ""}</td>
           <td class="num">${x._members.length} <span class="muted small">(м ${m}, ж ${x._members.length - m}${gone ? `, выбыло ${gone}` : ""})</span></td>
           <td>${esc(familySurnames(x).join(", "))}</td>
@@ -656,17 +673,17 @@ OKV.res = (function () {
           <div class="crumbs">
             <a href="javascript:history.back()">← назад</a><span class="sep">|</span>
             <a href="#/res/families">семьи</a><span class="sep">|</span>
-            ${prev ? `<a href="${esc(familyHref(prev))}">‹ № ${esc(prev.no)}</a>` : ""}
-            ${next ? `<a href="${esc(familyHref(next))}">№ ${esc(next.no)} ›</a>` : ""}
+            ${prev ? `<a href="${esc(familyHref(prev))}">‹ ${esc(famLabel(prev))}</a>` : ""}
+            ${next ? `<a href="${esc(familyHref(next))}">${esc(famLabel(next))} ›</a>` : ""}
           </div>
-          <h1>Семья № ${esc(f.no || "—")} <span class="muted">· ${esc(fio(f._head))}</span></h1>
+          <h1>Семья ${esc(famLabel(f))} <span class="muted">· ${esc(fio(f._head))}</span></h1>
           <dl class="meta">
             <dt>Документ</dt><dd><a href="#/res/doc/${esc(doc.id)}">${esc(doc.title)}</a></dd>
             <dt>Источник</dt><dd>${esc(docRef(doc))}, скан ${esc(f.files.join(", "))}</dd>
             <dt>Состав</dt><dd>${f._members.length} записей</dd>
           </dl>
           ${f.flags.length ? `<ul class="flaglist">${f.flags.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
-          <div class="tablewrap"><table class="grid">${FAMILY_HEAD}<tbody>${familyRows(f, null)}</tbody></table></div>
+          <div class="tablewrap"><table class="grid">${familyHead(doc)}<tbody>${familyRows(f, null)}</tbody></table></div>
         </div>
         <div class="right" data-viewer></div>
       </div>`;
@@ -788,31 +805,24 @@ OKV.res = (function () {
             <dt>Дело</dt><dd>${esc(d.delo_title || "")}</dd>
             <dt>Шапка документа</dt><dd class="orig">${esc(d.header || "")}</dd>
             <dt>Дата</dt><dd>${esc(d.date || d.year)}</dd>
-            <dt>Прошлая ревизия</dt><dd>${esc(d.prev_year || "")}</dd>
+            ${d.prev_year ? `<dt>Прошлая ревизия</dt><dd>${esc(d.prev_year)}</dd>` : ""}
             <dt>Место приписки</dt><dd>${esc(d.place_reg)}${d.kanton ? ", " + esc(d.kanton) : ""}</dd>
-            <dt>Сканы</dt><dd><a href="${esc(d.scans.public_key)}" target="_blank" rel="noopener">папка на Яндекс Диске</a>
-              · документ — файлы ${esc(d.files.join("–"))}</dd>
+            <dt>Сканы</dt><dd>${d.scans.public_key ? `<a href="${esc(d.scans.public_key)}" target="_blank" rel="noopener">папка на Яндекс Диске</a>`
+              : '<span class="muted">пока не выложены</span>'} · документ — файлы ${esc(d.files.join("–"))}</dd>
             <dt>Проиндексировано</dt><dd>${esc(rangesTxt(d.files_indexed))}</dd>
             <dt>Не проиндексировано</dt><dd>${esc(rangesTxt(d.files_missing || []) || "—")}</dd>
             ${d.source && d.source.ref ? `<dt>Первоисточник</dt><dd>${extLink(d.source.ref)}</dd>` : ""}
             ${d.source ? (d.source.notes || []).map((n) => `<dt>Примечание</dt><dd>${esc(n.text)}${n.link ? " " + extLink(n.link) : ""}</dd>`).join("") : ""}
             <dt>Индекс</dt><dd>${esc(d.source_index)} · импорт ${esc(d.imported)}</dd>
-            <dt>Записей</dt><dd>${esc(s.записей || d.records.length)} (мужчин ${esc(s.мужчин || 0)}, женщин ${esc(s.женщин || 0)});
-              умерли между ревизиями ${esc(s["умерли между ревизиями"] || 0)}, выбыли иначе ${esc(s["выбыли иначе"] || 0)}</dd>
+            <dt>Записей</dt><dd>${esc(s.записей || d.records.length)} (мужчин ${esc(s.мужчин || 0)}, женщин ${esc(s.женщин || 0)})${
+              Object.entries(s).filter(([k]) => !["записей", "мужчин", "женщин", "с пометками"].includes(k))
+                .map(([k, v]) => `; ${esc(k)} ${esc(v)}`).join("")}</dd>
             <dt>Семей</dt><dd>${d.families.length}</dd>
             <dt>С пометками</dt><dd><a href="#/res/persons" data-flagged>${esc(s["с пометками"] || 0)} записей</a></dd>
           </dl>
           ${d.index_note ? `<p class="gap-note">${esc(d.index_note)}</p>` : ""}
           <h2>Как считаются годы</h2>
-          <ul class="facts">
-            <li>Мужчины записаны с возрастом по прошлой ревизии (${esc(d.prev_year)} г.) и по текущей (${esc(d.year)} г.);
-              женщины — только по текущей.</li>
-            <li>Год рождения = ${esc(d.year)} − возраст по текущей ревизии. Если его нет (умер или выбыл
-              до ${esc(d.year)} г.) — ${esc(d.prev_year)} − возраст по прошлой. «Новорожденный» в графе прошлой ревизии —
-              родился после ${esc(d.prev_year)} г.</li>
-            <li>Если два возраста дают годы, расходящиеся больше чем на год, показаны оба и поставлена пометка.
-              Колонка «Год рождения (расчётный)» индекса не используется.</li>
-          </ul>
+          <ul class="facts">${(d.method || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
           <h2>Колонки индекса</h2>
           <div class="detail"><dl>${Object.entries(d.columns || {}).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>
         </div>

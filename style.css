@@ -315,6 +315,8 @@ tr.me td { background: var(--row-active); }
 .famlist li { padding: 1px 6px; border-radius: 4px; }
 .famlist li.me { background: var(--row-active); }
 .famlist li.gone, .famlist li.gone a { color: var(--muted); }
+.famlist.labeled { list-style: none; padding-left: 0; }
+.famlist.labeled .pos { display: inline-block; min-width: 2.4em; color: var(--muted); font-variant-numeric: tabular-nums; }
 tr.gone td { color: var(--muted); }
 .links-empty { color: var(--muted); }
 details.raw summary { cursor: pointer; color: var(--muted); margin: 18px 0 6px; }

@@ -3,6 +3,7 @@ OKV.config = {
   "1906"
  ],
  "res_docs": [
+  "okp11_1865_emanzh",
   "rs1834_etkul"
  ],
  "res_links": false,
