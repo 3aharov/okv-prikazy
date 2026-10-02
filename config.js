@@ -1,5 +1,6 @@
 OKV.config = {
  "years": [
+  "1905",
   "1906"
  ],
  "res_docs": [
