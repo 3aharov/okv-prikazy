@@ -558,7 +558,9 @@ window.OKV = (function () {
   /* ================= Главная сайта и страница раздела «Приказы ОКВ» ================= */
 
   const hasOkv = () => Y().years.length > 0;
-  const hasRes = () => !!(OKV.res && OKV.res.has());
+  // Базы людей по документам (res.js): у каждой свой раздел, маршрут #/<key>/….
+  const bases = () => (OKV.bases ? OKV.bases.active() : []);
+  const baseOf = (key) => (OKV.bases ? OKV.bases.get(key) : null);
 
   function okvYears() {
     const D = Y();
@@ -636,7 +638,7 @@ window.OKV = (function () {
         <div class="home-search">${okvSearchForms("home")}</div>
         ${OKV_FACTS}
       </section>` : "";
-    const res = hasRes() ? OKV.res.homeBlock() : "";
+    const res = bases().map((b) => b.homeBlock()).join("");
     app.innerHTML = `
       <section class="home">
         <div class="hero">
@@ -650,7 +652,7 @@ window.OKV = (function () {
         <div class="bases">${res}${okv}</div>
       </section>`;
     bindOkvSearch(app);
-    if (hasRes()) OKV.res.bindHomeBlock(app);
+    bases().forEach((b) => b.bindHomeBlock(app));
     const first = $("input[type=search]", app);
     if (first) first.focus();
   }
@@ -1399,7 +1401,7 @@ window.OKV = (function () {
 
   /* Разделы сайта. В шапке — «Главная» и по кнопке на раздел; внутри подраздела под ними
      строка подразделов этого раздела. Маршруты приказов остались прежними (#/persons,
-     #/order/…), чтобы не сломать ссылки из заметок; база жителей — под #/res/…. */
+     #/order/…), чтобы не сломать ссылки из заметок; базы людей — под #/<key>/… (#/res/…, #/odn/…). */
   const OKV_VIEWS = new Set(["persons", "order", "page", "surnames", "places", "place",
     "focus", "texts", "volume"]);
   const OKV_TABS = [
@@ -1409,19 +1411,32 @@ window.OKV = (function () {
     ["focus", "Фокус", "Станицы, посёлки и фамилии, которые исследуются особо."],
     ["texts", "Тексты", "Поиск по полным текстам приказов в старой орфографии."],
     ["volume", "Том", "Все разобранные страницы по порядку, с миниатюрами сканов."]];
-  const SECTION_TITLES = { home: "", okv: "Приказы ОКВ", res: "Жители Еткульской" };
+  const SECTION_TITLES = { home: "", okv: "Приказы ОКВ" };
+  const sectionTitle = (sec) => (baseOf(sec) ? baseOf(sec).nav : SECTION_TITLES[sec] || "");
 
   // Подразделы раздела: [href, ключ вкладки, название, пояснение].
   function sectionTabs(sec) {
     if (sec === "okv" && !hasOkv()) return [];
-    if (sec === "res" && !hasRes()) return [];
     if (sec === "okv") return OKV_TABS.filter(([k]) => k !== "focus" || hasFocus()).map(([k, t, d]) => [`#/${k}`, k, t, d]);
-    if (sec === "res") return OKV.res.tabs().map(([k, t, d]) => [`#/res/${k}`, k, t, d]);
+    const b = baseOf(sec);
+    if (b) return b.tabs().map(([k, t, d]) => [`#/${sec}/${k}`, k, t, d]);
     return [];
   }
 
   /* Кнопка раздела в шапке открывает выпадающий список подразделов; своей страницы у раздела нет. */
   function buildMenus() {
+    // Кнопки баз людей — по списку баз (res.js), после «Приказов ОКВ».
+    const nav = $("#sections");
+    $$('#sections .sec[data-base]').forEach((x) => x.remove());
+    bases().forEach((b) => {
+      const box = document.createElement("div");
+      box.className = "sec";
+      box.dataset.sec = b.key;
+      box.dataset.base = "";
+      box.innerHTML = `<button type="button" class="sec-btn" aria-haspopup="true" aria-expanded="false">${esc(b.nav)}</button>
+        <div class="menu" hidden></div>`;
+      nav.appendChild(box);
+    });
     $$("#sections .sec").forEach((box) => {
       const tabs = sectionTabs(box.dataset.sec);
       if (!tabs.length) { box.hidden = true; return; }
@@ -1456,13 +1471,13 @@ window.OKV = (function () {
     if (!tabs.length) { sub.hidden = true; sub.innerHTML = ""; }
     else {
       sub.hidden = false;
-      sub.innerHTML = `<span class="sub-title">${esc(SECTION_TITLES[sec])}</span>` +
+      sub.innerHTML = `<span class="sub-title">${esc(sectionTitle(sec))}</span>` +
         tabs.map(([href, k, t]) => `<a href="${href}" data-tab="${k}" class="${k === tab ? "on" : ""}">${esc(t)}</a>`).join("");
     }
     // Высота шапки меняется со строкой подразделов — от неё считаются липкий скан и его высота.
     document.documentElement.style.setProperty("--top-h", $(".top").offsetHeight + "px");
     const on = $("#subnav a.on");
-    const parts = [SECTION_TITLES[sec], on ? on.textContent : ""].filter(Boolean);
+    const parts = [sectionTitle(sec), on ? on.textContent : ""].filter(Boolean);
     document.title = parts.length ? parts.join(" — ") : "Указатели по генеалогии и локальной истории";
   }
 
@@ -1475,12 +1490,13 @@ window.OKV = (function () {
     const [view, ...rest] = path.split("/");
     const arg = rest.length ? decodeURIComponent(rest.join("/")) : null;
 
-    if (view === "res") {
-      if (!hasRes()) { location.hash = "#/home"; return; }
+    const base = baseOf(view);
+    if (base || view === "res" || view === "odn") {
+      if (!base) { location.hash = "#/home"; return; }
       currentView = rest.length <= 1 ? path : null;
-      const r = OKV.res.route(app, rest.map(decodeURIComponent), params);
+      const r = base.route(app, rest.map(decodeURIComponent), params);
       if (r.home) { location.replace("#/home"); return; }
-      drawNav("res", r.tab);
+      drawNav(view, r.tab);
       if (currentView && rest.length) window.scrollTo(0, S.scroll[currentView] || 0);
       return;
     }
@@ -1536,7 +1552,7 @@ window.OKV = (function () {
     // Публичная сборка прячет служебные пометки «проверить» (explorer.web.json → hide_checks).
     if (cfg.hide_checks) document.body.classList.add("no-checks");
     const years = cfg.years || [];
-    const resFiles = OKV.res ? OKV.res.files(cfg) : [];
+    const resFiles = OKV.bases ? OKV.bases.files(cfg) : [];
     if (!years.length && !resFiles.length) {
       $("#app").innerHTML = `<p class="empty">Нет данных. Соберите: <code>python prikaz_explorer.py --year 1906</code></p>`;
       return;
@@ -1548,7 +1564,7 @@ window.OKV = (function () {
     // Сканы базы жителей запрашиваются позже, при первом открытии скана (res.js).
     const imagesLoaded = Promise.all(years.map(loadYearImages));
     Promise.all([dataLoaded, imagesLoaded]).then(() => {
-      const resOk = OKV.res && OKV.res.finalize();
+      const resOk = OKV.bases && OKV.bases.finalize();
       if (!S.loaded.length && !resOk) { $("#app").innerHTML = `<p class="empty">Файлы данных не загрузились.</p>`; return; }
       finalize();
       buildMenus();
@@ -1559,7 +1575,7 @@ window.OKV = (function () {
     });
   }
 
-  // Общие помощники для модуля базы жителей (res.js) — чтобы вёрстка и поиск были одни.
+  // Общие помощники для модуля баз людей (res.js) — чтобы вёрстка и поиск были одни.
   const helpers = { esc, $, $$, fold, masc, surnameMatch, debounce, sortHead, bindSort, bindRows,
     viewer, S };
 

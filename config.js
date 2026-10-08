@@ -6,7 +6,8 @@ OKV.config = {
  ],
  "res_docs": [
   "okp11_1865_emanzh",
-  "rs1834_etkul"
+  "rs1834_etkul",
+  "rs1834_kursk"
  ],
  "res_links": false,
  "images": {
